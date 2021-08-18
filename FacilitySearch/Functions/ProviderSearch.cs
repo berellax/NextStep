@@ -24,6 +24,7 @@ namespace ProviderSearch
         private readonly HttpClient _client;
         private readonly Config _config;
 
+        #region Public Methods
         public ProviderSearch(IHttpClientFactory httpClientFactory)
         {
             _config = new Config(Environment.GetEnvironmentVariables());
@@ -73,6 +74,7 @@ namespace ProviderSearch
 
             return new OkObjectResult(searchResponse);
         }
+        #endregion Public Methods
 
         #region Private Methods
 
