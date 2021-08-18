@@ -194,14 +194,13 @@ namespace ProviderSearch.Models
 
     internal class ProfileCriteria : ModelProcessing
     {
-        private int _id;
+        private string _id;
         private string _attributeName;
 
         [JsonPropertyName("id")]
-        public int Id
+        public string Id
         {
-            get { return _id; }
-            set { _id = value; }
+            get { return Guid.NewGuid().ToString(); }
         }
 
         [JsonPropertyName("attributeName")]

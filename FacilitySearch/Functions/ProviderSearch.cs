@@ -319,14 +319,12 @@ namespace ProviderSearch
 
                 ProfileCriteria matchedCriteria = new ProfileCriteria()
                 {
-                    Id = 0,
                     AttributeName = "Onsite LPN"
                 };
                 providerResponse.MatchedProfileCriterias.Add(matchedCriteria);
 
                 ProfileCriteria unmatchedCriteria = new ProfileCriteria()
                 {
-                    Id = 0,
                     AttributeName = "Onsite Pharmacy"
                 };
                 providerResponse.UnmatchedProfileCriterias.Add(unmatchedCriteria);
@@ -408,8 +406,6 @@ namespace ProviderSearch
         private void GetMatchedProfileCriteria(Dictionary<string, bool> accountOptions, Dictionary<string, bool> contactOptions, 
                                                 out List<ProfileCriteria> matchedCriteria, out List<ProfileCriteria> unmatchedCriteria)
         {
-            int matchedIndex = 0;
-            int unmatchedIndex = 0;
             matchedCriteria = new List<ProfileCriteria>();
             unmatchedCriteria = new List<ProfileCriteria>();
 
@@ -419,21 +415,17 @@ namespace ProviderSearch
                 {
                     ProfileCriteria criteria = new ProfileCriteria()
                     {
-                        Id = matchedIndex,
                         AttributeName = key
                     };
                     matchedCriteria.Add(criteria);
-                    matchedIndex++;
                 }
                 else
                 {
                     ProfileCriteria criteria = new ProfileCriteria()
                     {
-                        Id = unmatchedIndex,
                         AttributeName = key
                     };
                     unmatchedCriteria.Add(criteria);
-                    unmatchedIndex++;
                 }
             }
         }
