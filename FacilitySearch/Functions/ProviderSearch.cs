@@ -47,10 +47,6 @@ namespace ProviderSearch
             await AuthenticateClient(log);
             log.LogInformation("Authenticated Function with Dataverse successfully");
 
-            //Get Match Scoring Rules
-            log.LogInformation("Retrieving Match Scoring Rules");
-            ODataResponse<ODataMatchScoringRule> matchRules = await GetMatchScoringRules(log);
-            log.LogInformation($"Successfully retrieved {matchRules.Response.Count}");
 
             //Get Account Objects with Clinical and Residential Options
             log.LogInformation("Retrieving accounts based on geo code with preferences");
@@ -64,7 +60,7 @@ namespace ProviderSearch
 
             //Get the Providers that match the Contact
             log.LogInformation("Matching Providers with Contact based on Options and Preferences");
-            List<ProviderResponse> providerResponses = await GetSearchResultProviderResponse(accounts, contact, matchRules, log);
+            List<ProviderResponse> providerResponses = await GetProviderResponses(accounts, contact, log);
             log.LogInformation($"{providerResponses.Count} Providers matched the Contact on Options and Preferences");
 
             //Create Search Response
@@ -286,6 +282,262 @@ namespace ProviderSearch
         #endregion Get Profile Options
 
         #region Create Search Results
+       
+        /// <summary>
+        /// Gets the list of Provider Responess to include in teh Search Results
+        /// </summary>
+        /// <param name="accounts"></param>
+        /// <param name="contact"></param>
+        /// <param name="matchRules"></param>
+        /// <param name="log"></param>
+        /// <returns></returns>
+        private async Task<List<ProviderResponse>> GetProviderResponses(List<ODataAccount> accounts, ODataContact contact, ILogger log)
+        {
+            //Create a collection of provider responses to populate in this method.
+            List<ProviderResponse> providerResponses = new List<ProviderResponse>();
+
+            //Get a collection of accounts with a Clinical and Residential Profile Id
+            List<ODataAccount> targetAccounts = accounts.Where(a => a.ClinicalProfileId != null && a.ResidentialProfileId != null).ToList();
+            log.LogInformation($"Retrieved {targetAccounts.Count} target accounts to format for search response.");
+
+            //Get Match Scoring Rules
+            log.LogInformation("Retrieving Match Scoring Rules");
+            ODataResponse<ODataMatchScoringRule> matchRules = await GetMatchScoringRules(log);
+            log.LogInformation($"Successfully retrieved {matchRules.Response.Count} Match Scoring Rules");
+
+            //Split Match Scoring Rules
+            List<ODataMatchScoringRule> clinicalMatchRules = matchRules.Response.Where(m => m.TargetProfileType == (int)MatchProfileType.Clinical).ToList();
+            List<ODataMatchScoringRule> residentialMatchRules = matchRules.Response.Where(m => m.TargetProfileType == (int)MatchProfileType.Residential).ToList();
+            log.LogInformation($"{clinicalMatchRules.Count} Clinical Match Rules Identified");
+            log.LogInformation($"{residentialMatchRules.Count} Residential Match Ruels Identified");
+
+            //Create Provider Response for each account.
+            foreach (var account in targetAccounts)
+            {
+                log.LogInformation($"Creating Provider Response for Account {account.Name}");
+                ProviderResponse providerResponse = CreateProviderResponse(account, contact, clinicalMatchRules, residentialMatchRules, log);
+                providerResponses.Add(providerResponse);
+                log.LogInformation($"Successfully added Provider Response {account.Name} to search response.");
+            }
+
+            return providerResponses;
+        }
+
+        /// <summary>
+        /// Creates a Provider Response for a given account/contact and match rules
+        /// </summary>
+        /// <param name="account"></param>
+        /// <param name="contact"></param>
+        /// <param name="matchRules"></param>
+        /// <param name="log"></param>
+        /// <returns></returns>
+        private ProviderResponse CreateProviderResponse(ODataAccount account, ODataContact contact, List<ODataMatchScoringRule> clinicalMatchRules, 
+                                                            List<ODataMatchScoringRule> residentialMatchRules, ILogger log)
+        {
+            //Create a new Provider Response objects and populate account information
+            ProviderResponse providerResponse = new ProviderResponse()
+            {
+                Id = account.AccountId,
+                Name = account.Name,
+                Phone = account.Phone,
+                Fax = account.Fax,
+                EmailAddress = account.Email,
+                Address1 = account.Address1,
+                Address2 = account.Address2,
+                City = account.City,
+                StateOrProvince = account.StateOrProvince,
+                PostalCode = account.PostalCode,
+                Headline = account.Headline,
+                CurrentPromotions = account.CurrentPromotions,
+                ShortDescription = account.ShortDescription,
+                LongDescription = account.LongDescription,
+                MatchedProfileCriterias = new List<ProfileCriteria>(),
+                UnmatchedProfileCriterias = new List<ProfileCriteria>(),
+                ProfileScore = 0
+            };
+
+            log.LogInformation("Setting Matched and Unmatched Profile Criteria for Provider Response");
+            SetResponseCriteriaAndScore(providerResponse, account, contact, clinicalMatchRules, residentialMatchRules, log);
+            log.LogInformation($"{providerResponse.MatchedProfileCriterias.Count} Matched Profile Criterias and {providerResponse.UnmatchedProfileCriterias.Count} Unmatched Profile Criterias");
+
+
+            return providerResponse;
+        }
+
+        /// <summary>
+        /// Identify and set the Matched and Unmatched Criteria collections
+        /// Set the attribute names for the collection to the friendly name from the attribute name
+        /// Calculate and set the profile score based on the matched collection
+        /// </summary>
+        /// <param name="providerResponse"></param>
+        /// <param name="account"></param>
+        /// <param name="contact"></param>
+        /// <param name="clinicalMatchRules"></param>
+        /// <param name="residentialMatchRules"></param>
+        /// <param name="log"></param>
+        private void SetResponseCriteriaAndScore(ProviderResponse providerResponse, ODataAccount account, ODataContact contact,
+                                                                    List<ODataMatchScoringRule> clinicalMatchRules, List<ODataMatchScoringRule> residentialMatchRules, ILogger log)
+        {
+            //Set Matched/Unmatched Clinical Profile Criteria
+            List<ProfileCriteria> matchedClinicalCriteria;
+            List<ProfileCriteria> unmatchedClinicalCriteria;
+            GetMatchedProfileCriteria(account.ClinicalOptions, contact.ClinicalOptions, out matchedClinicalCriteria, out unmatchedClinicalCriteria);
+
+            //Set Matched/Unmatched Residential Profile Criteria
+            List<ProfileCriteria> matchedResidentialCriteria;
+            List<ProfileCriteria> unmatchedResidentialCriteria;
+            GetMatchedProfileCriteria(account.ClinicalOptions, contact.ResidentialOptions, out matchedResidentialCriteria, out unmatchedResidentialCriteria);
+
+            //Set Profile Score for Clinical and Residential Profile Criteria
+            int clinicalScore = CalculateProfileScore(matchedClinicalCriteria, clinicalMatchRules, log);
+            int residentialScore = CalculateProfileScore(matchedResidentialCriteria, residentialMatchRules, log);
+
+            //Update Criteria to Friendly Name for Clinical and Residential Profile Criteria
+            UpdateCriteriaFriendlyNames(matchedClinicalCriteria, clinicalMatchRules, log);
+            UpdateCriteriaFriendlyNames(unmatchedClinicalCriteria, clinicalMatchRules, log);
+            UpdateCriteriaFriendlyNames(matchedResidentialCriteria, residentialMatchRules, log);
+            UpdateCriteriaFriendlyNames(unmatchedClinicalCriteria, residentialMatchRules, log);
+
+            //Update Provider Response Object
+            providerResponse.MatchedProfileCriterias.AddRange(matchedClinicalCriteria);
+            providerResponse.MatchedProfileCriterias.AddRange(matchedResidentialCriteria);
+            providerResponse.UnmatchedProfileCriterias.AddRange(unmatchedClinicalCriteria);
+            providerResponse.UnmatchedProfileCriterias.AddRange(unmatchedResidentialCriteria);
+            providerResponse.ProfileScore = clinicalScore + residentialScore;
+        }
+
+        /// <summary>
+        /// Calculate and return a Profile Score based on Profile Criterias and Match Rules
+        /// </summary>
+        /// <param name="profileCriterias"></param>
+        /// <param name="matchRules"></param>
+        /// <param name="log"></param>
+        /// <returns></returns>
+        private int CalculateProfileScore(List<ProfileCriteria> profileCriterias, List<ODataMatchScoringRule> matchRules, ILogger log)
+        {
+            int profileScore = 0;
+
+            //Match Profile Criteria and Calculate Score
+            foreach (var match in profileCriterias)
+            {
+                var relatedMatchRules = matchRules.Where(m => m.Field.ToLowerInvariant() == match.AttributeName.ToLowerInvariant()).ToList();
+
+                //Check if a Match Rule was found based on Attribute Name and set the match score.
+                if(relatedMatchRules.Any())
+                {
+                    int score = relatedMatchRules.Sum(r => r.Score);
+                    profileScore += score;
+                    log.LogInformation($"Calculated {score} for {match.AttributeName}.");
+                }
+                else
+                {
+                    log.LogInformation($"No Matching Rule found for {match.AttributeName}.");
+                }
+            }
+            
+            return profileScore;
+        }
+
+        /// <summary>
+        /// Update the criteria attributes from the schema name to the friendly name as defined in the Match Rule.
+        /// </summary>
+        /// <param name="profileCriterias"></param>
+        /// <param name="matchRules"></param>
+        /// <param name="log"></param>
+        private void UpdateCriteriaFriendlyNames(List<ProfileCriteria> profileCriterias, List<ODataMatchScoringRule> matchRules, ILogger log)
+        {
+            //Match Profile Criteria and Calculate Score
+            foreach (var criteria in profileCriterias)
+            {
+                string criteriaAttribute = criteria.AttributeName;
+
+                var relatedMatchRule = matchRules.Where(m => m.Field.ToLowerInvariant() == criteriaAttribute.ToLowerInvariant()).
+                                                    Select(a => new ODataMatchScoringRule()
+                                                    {
+                                                        Field = a.Field,
+                                                        FriendlyName = a.FriendlyName,
+                                                    }).FirstOrDefault();
+                
+                //Check if a Match Rule was found based on Attribute Name and set the Attribute Name
+                if (relatedMatchRule == null)
+                {
+                    log.LogInformation($"No Matching Rule found for {criteria.AttributeName}.");
+                }
+                else
+                {
+                    criteria.FriendlyName = relatedMatchRule.FriendlyName;
+                    log.LogInformation($"Set Criteria for Attribute {relatedMatchRule.Field} to Friendly Name {relatedMatchRule.FriendlyName}.");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Determine the matched and unmatched criteria based on Account and Contact Options
+        /// </summary>
+        /// <param name="accountOptions"></param>
+        /// <param name="contactOptions"></param>
+        /// <param name="matchedCriteria"></param>
+        /// <param name="unmatchedCriteria"></param>
+        private void GetMatchedProfileCriteria(Dictionary<string, bool> accountOptions, Dictionary<string, bool> contactOptions, 
+                                                out List<ProfileCriteria> matchedCriteria, out List<ProfileCriteria> unmatchedCriteria)
+        {
+            matchedCriteria = new List<ProfileCriteria>();
+            unmatchedCriteria = new List<ProfileCriteria>();
+
+            foreach (var(key, accountValue) in accountOptions)
+            {
+                //If the option was selected by the user and matches the provider, set to matched
+                if (contactOptions.ContainsKey(key) && Equals(accountValue, contactOptions[key]))
+                {
+                    ProfileCriteria criteria = new ProfileCriteria()
+                    {
+                        AttributeName = key
+                    };
+                    matchedCriteria.Add(criteria);
+                }
+                //If the option was selected by the user and does not match the provider, set to unmatched
+                else if (contactOptions.ContainsKey(key))
+                {
+                    ProfileCriteria criteria = new ProfileCriteria()
+                    {
+                        AttributeName = key
+                    };
+                    unmatchedCriteria.Add(criteria);
+                }
+            }
+        }
+
+        private bool DoesDictionaryMatch(Dictionary<string, bool> accountOptions, Dictionary<string, bool> contactOptions)
+        {
+            bool isMatch = false;
+            
+            var result = new Dictionary<string, bool>(accountOptions.Count, accountOptions.Comparer);
+
+            foreach(var (key, value) in contactOptions)
+            {
+                if (accountOptions.ContainsKey(key))
+                {
+                    var contactValue = accountOptions[key];
+
+                    if(Equals(value, contactValue))
+                    {
+                        isMatch = true;
+                        continue;
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            return isMatch;
+        }
+
         private async Task<ProviderSearchResponse> CreateSearchResponse(List<ProviderResponse> providerResponses, int resultCount, ILogger log)
         {
             ProviderSearchResponse searchResponse = new ProviderSearchResponse();
@@ -335,155 +587,7 @@ namespace ProviderSearch
 
             return searchResponse;
         }
-        
-        private async Task<List<ProviderResponse>> GetSearchResultProviderResponse(List<ODataAccount> accounts, ODataContact contact, ODataResponse<ODataMatchScoringRule>matchRules, ILogger log)
-        {
-            List<ProviderResponse> providerResponses = new List<ProviderResponse>();
-
-            foreach (var account in accounts.Where(a => a.ClinicalProfileId != null && a.ResidentialProfileId != null))
-            {
-                ProviderResponse providerResponse = new ProviderResponse()
-                {
-                    Id = account.AccountId,
-                    Name = account.Name,
-                    Phone = account.Phone,
-                    Fax = account.Fax,
-                    EmailAddress = account.Email,
-                    Address1 = account.Address1,
-                    Address2 = account.Address2,
-                    City = account.City,
-                    StateOrProvince = account.StateOrProvince,
-                    PostalCode = account.PostalCode,
-                    Headline = account.Headline,
-                    CurrentPromotions = account.CurrentPromotions,
-                    ShortDescription = account.ShortDescription,
-                    LongDescription = account.LongDescription,
-                    MatchedProfileCriterias = new List<ProfileCriteria>(),
-                    UnmatchedProfileCriterias = new List<ProfileCriteria>()
-                };
-
-                //Get Matched/Unmatched Clinical Profile Criteria
-                List<ProfileCriteria> matchedClinicalProfileCriteria;
-                List<ProfileCriteria> unmatchedClinicalProfileCriteria;
-                
-                GetMatchedProfileCriteria(account.ClinicalOptions, contact.ClinicalOptions, out matchedClinicalProfileCriteria, out unmatchedClinicalProfileCriteria);
-                providerResponse.MatchedProfileCriterias.AddRange(matchedClinicalProfileCriteria);
-                providerResponse.UnmatchedProfileCriterias.AddRange(unmatchedClinicalProfileCriteria);
-
-                //Get Matched/Unmatched Residential Profile Criteria
-                List<ProfileCriteria> matchedResidentialProfileCriteria;
-                List<ProfileCriteria> unmatchedResidentialProfileCriteria;
-                
-                GetMatchedProfileCriteria(account.ClinicalOptions, contact.ResidentialOptions, out matchedResidentialProfileCriteria, out unmatchedResidentialProfileCriteria);
-                providerResponse.MatchedProfileCriterias.AddRange(matchedResidentialProfileCriteria);
-                providerResponse.UnmatchedProfileCriterias.AddRange(unmatchedResidentialProfileCriteria);
-
-                //Calculate Score
-                List<ODataMatchScoringRule> clinicalMatchRules = matchRules.Response.Where(m => m.TargetProfileType == (int)MatchProfileType.Clinical).ToList<ODataMatchScoringRule>();
-
-                List<ODataMatchScoringRule> residentialMatchRules = matchRules.Response.Where(m => m.TargetProfileType == (int)MatchProfileType.Residential).ToList<ODataMatchScoringRule>();
-
-                int profileScore = 0;
-                foreach(var match in matchedClinicalProfileCriteria)
-                {
-                    profileScore += clinicalMatchRules.Where(m => m.Field.ToLower() == match.AttributeName.ToLower()).Sum(r => r.Score);
-                }
-
-                foreach(var match in matchedResidentialProfileCriteria)
-                {
-                    profileScore += residentialMatchRules.Where(m => m.Field.ToLower() == match.AttributeName.ToLower()).Sum(r => r.Score);
-                }
-
-                providerResponse.ProfileScore = profileScore;
-
-                //Add Response to List
-                providerResponses.Add(providerResponse);
-            }
-
-            return providerResponses;
-        }
-
-        private void GetMatchedProfileCriteria(Dictionary<string, bool> accountOptions, Dictionary<string, bool> contactOptions, 
-                                                out List<ProfileCriteria> matchedCriteria, out List<ProfileCriteria> unmatchedCriteria)
-        {
-            matchedCriteria = new List<ProfileCriteria>();
-            unmatchedCriteria = new List<ProfileCriteria>();
-
-            foreach (var(key, accountValue) in accountOptions)
-            {
-                if (contactOptions.ContainsKey(key) && Equals(accountValue, contactOptions[key]))
-                {
-                    ProfileCriteria criteria = new ProfileCriteria()
-                    {
-                        AttributeName = key
-                    };
-                    matchedCriteria.Add(criteria);
-                }
-                else
-                {
-                    ProfileCriteria criteria = new ProfileCriteria()
-                    {
-                        AttributeName = key
-                    };
-                    unmatchedCriteria.Add(criteria);
-                }
-            }
-        }
-
-        private bool DoesDictionaryMatch(Dictionary<string, bool> accountOptions, Dictionary<string, bool> contactOptions)
-        {
-            bool isMatch = false;
-            
-            var result = new Dictionary<string, bool>(accountOptions.Count, accountOptions.Comparer);
-
-            foreach(var (key, value) in contactOptions)
-            {
-                if (accountOptions.ContainsKey(key))
-                {
-                    var contactValue = accountOptions[key];
-
-                    if(Equals(value, contactValue))
-                    {
-                        isMatch = true;
-                        continue;
-                    }
-                    else
-                    {
-                        return false;
-                    }
-                }
-                else
-                {
-                    return false;
-                }
-            }
-
-            return isMatch;
-        }
         #endregion Create Search Results
-
-        //private async Task<Dictionary<string, bool>> GetCombinedProfile(JToken clinicalProfile, JToken residentialProfile)
-        //{
-        //    Dictionary<string, bool> combinedProfile = new Dictionary<string, bool>();
-
-        //    foreach (JProperty element in clinicalProfile.Children())
-        //    {
-        //        if (element.Value.ToString().ToLower() == "true")
-        //        {
-        //            combinedProfile.Add(element.Name, Boolean.Parse(element.Value.ToString()));
-        //        }
-        //    }
-
-        //    foreach (JProperty element in residentialProfile.Children())
-        //    {
-        //        if(element.Value.ToString().ToLower() == "true")
-        //        {
-        //            combinedProfile.Add(element.Name, Boolean.Parse(element.Value.ToString()));
-        //        }
-        //    }
-
-        //    return combinedProfile;
-        //}
 
         #endregion Private Methods
 

@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Text;
 using System.Text.Json.Serialization;
 
 namespace ProviderSearch.Models
@@ -37,7 +36,7 @@ namespace ProviderSearch.Models
         public string Name
         {
             get { return _name; }
-            set { _name = _encode(value); }
+            set { _name = value; }
         }
 
         [JsonPropertyName("phone")]
@@ -65,28 +64,28 @@ namespace ProviderSearch.Models
         public string Address1
         {
             get { return _address1; }
-            set { _address1 = _encode(value); }
+            set { _address1 = value; }
         }
 
         [JsonPropertyName("address2")]
         public string Address2
         {
             get { return _address2; }
-            set { _address2 = _encode(value); }
+            set { _address2 = value; }
         }
 
         [JsonPropertyName("city")]
         public string City
         {
             get { return _city; }
-            set { _city = _encode(value); }
+            set { _city = value; }
         }
 
         [JsonPropertyName("stateOrProvince")]
         public string StateOrProvince
         {
             get { return _stateOrProvince; }
-            set { _stateOrProvince = _encode(value); }
+            set { _stateOrProvince = value; }
         }
 
         [JsonPropertyName("postalCode")]
@@ -100,28 +99,28 @@ namespace ProviderSearch.Models
         public string Headline
         {
             get { return _headline; }
-            set { _headline = _encode(value); }
+            set { _headline = value; }
         }
 
         [JsonPropertyName("currentPromotion")]
         public string CurrentPromotions
         {
             get { return _currentPromotions; }
-            set { _currentPromotions = _encode(value); }
+            set { _currentPromotions = value; }
         }
 
         [JsonPropertyName("shortDescription")]
         public string ShortDescription
         {
             get { return _shortDescription; }
-            set { _shortDescription = _encode(value); }
+            set { _shortDescription = value; }
         }
 
         [JsonPropertyName("longDescription")]
         public string LongDescription
         {
             get { return _longDescription; }
-            set { _longDescription = _encode(value); }
+            set { _longDescription = value; }
         }
 
         //TODO: Figure out encoding for collection
@@ -139,7 +138,6 @@ namespace ProviderSearch.Models
             set { _profileScore = value; }
         }
 
-        //TODO: Figure out encoding for collection
         [JsonPropertyName("matchedProfileCriteria")]
         public List<ProfileCriteria> MatchedProfileCriterias
         {
@@ -147,7 +145,6 @@ namespace ProviderSearch.Models
             set { _matchedProfileCriterias = value; }
         }
 
-        //TODO: Figure out encoding for collection
         [JsonPropertyName("unmatchedProfileCriteria")]
         public List<ProfileCriteria> UnmatchedProfileCriterias
         {
@@ -194,7 +191,6 @@ namespace ProviderSearch.Models
 
     internal class ProfileCriteria : ModelProcessing
     {
-        private string _id;
         private string _attributeName;
 
         [JsonPropertyName("id")]
@@ -209,5 +205,9 @@ namespace ProviderSearch.Models
             get { return _attributeName; }
             set { _attributeName = _encode(value); }
         }
+
+        [JsonPropertyName("friendlyName")]
+        public string FriendlyName { get; set; }
+
     }
 }

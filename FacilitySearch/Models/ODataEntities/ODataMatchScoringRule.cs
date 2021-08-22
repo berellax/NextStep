@@ -11,6 +11,8 @@ namespace ProviderSearch.Models
 {
     internal class ODataMatchScoringRule
     {
+        private string _friendlyName;
+
         [JsonPropertyName("@odata.etag")]
         public string OdataEtag { get; set; }
 
@@ -27,7 +29,10 @@ namespace ProviderSearch.Models
         public int TargetProfileType { get; set; }
 
         [JsonPropertyName("nsat_profilefieldfriendlyname")]
-        public string FriendlyName { get; set; }
+        public string FriendlyName {
+            get { return _friendlyName; }
+            set { _friendlyName = value ?? string.Empty; }
+        }
 
         public async Task<ODataResponse<ODataMatchScoringRule>> GetMatchScoringRules(HttpClient httpClient)
         {
