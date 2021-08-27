@@ -38,15 +38,24 @@ namespace ProviderSearch.Shared
             this HttpClient client,
             ODataRequest request)
         {
-            var response = await client.GetAsync(request.QueryString);
+            HttpResponseMessage response; 
 
-            if (!response.IsSuccessStatusCode)
+            try
             {
-                throw new Exception($"Get OData request failed with reason: {response.ReasonPhrase}");
-            }
+                response = await client.GetAsync(request.QueryString);
 
-            var responseContent = await response.Content.ReadAsStringAsync();
-            return System.Text.Json.JsonSerializer.Deserialize<T>(responseContent);
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw new Exception(response.ReasonPhrase);
+                }
+
+                var responseContent = await response.Content.ReadAsStringAsync();
+                return System.Text.Json.JsonSerializer.Deserialize<T>(responseContent);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Get OData request failed with reason: {ex.Message}");
+            }
         }
 
         internal static async Task<JObject> RetrieveOdataDynamic<T>(

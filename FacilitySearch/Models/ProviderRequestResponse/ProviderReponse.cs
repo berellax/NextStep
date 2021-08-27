@@ -191,8 +191,6 @@ namespace ProviderSearch.Models
 
     internal class ProfileCriteria : ModelProcessing
     {
-        private string _attributeName;
-
         [JsonPropertyName("id")]
         public string Id
         {
@@ -200,11 +198,7 @@ namespace ProviderSearch.Models
         }
 
         [JsonPropertyName("attributeName")]
-        public string AttributeName
-        {
-            get { return _attributeName; }
-            set { _attributeName = _encode(value); }
-        }
+        public string AttributeName { get; set; }
 
         [JsonPropertyName("friendlyName")]
         public string FriendlyName { get; set; }

@@ -36,39 +36,63 @@ namespace ProviderSearch
             [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
             ILogger log)
         {
-            log.LogInformation("ProviderSearch function request initiated.");
+            try
+            {
 
-            //Parse the Provider Search Request object.
-            var searchRequest = await ParseProviderSearchRequest(req);
-            log.LogInformation($"Provider Search Request - Zip: {searchRequest.ZipCode}; Radius: {searchRequest.MilesRadius}; ContactId: {searchRequest.ContactId}");
+                log.LogInformation("ProviderSearch function request initiated.");
 
-            //Get client app authentication token
-            log.LogInformation("Authenticating function app with Dataverse environment.");
-            await AuthenticateClient(log);
-            log.LogInformation("Authenticated Function with Dataverse successfully");
+                //Parse the Provider Search Request object.
+                var searchRequest = await ParseProviderSearchRequest(req);
+                log.LogInformation($"Provider Search Request - Zip: {searchRequest.ZipCode}; Radius: {searchRequest.MilesRadius}; ContactId: {searchRequest.ContactId}");
 
+                //Get client app authentication token
+                log.LogInformation("Authenticating function app with Dataverse environment.");
+                await AuthenticateClient(log);
+                log.LogInformation("Authenticated Function with Dataverse successfully");
 
-            //Get Account Objects with Clinical and Residential Options
-            log.LogInformation("Retrieving accounts based on geo code with preferences");
-            List<ODataAccount> accounts = await GetAccountsByRadius(searchRequest.ZipCode, searchRequest.MilesRadius, log);
-            log.LogInformation($"Successfully retrieved {accounts.Count} accounts based on geo code.");
+                //Get the Contact Object with Clinical and Residential Options
+                log.LogInformation("Retrieving contact for logged in user.");
+                ODataContact contact = await GetContact(searchRequest.ContactId, log);
+                log.LogInformation("Successfully retrieved Contact");
 
-            //Get the Contact Object with Clinical and Residential Options
-            log.LogInformation("Retrieving contact for logged in user.");
-            ODataContact contact = await GetContact(searchRequest.ContactId, log);
-            log.LogInformation("Successfully retrieved Contact");
+                if(contact == null)
+                {
+                    return new NotFoundObjectResult($"Contact with id {searchRequest.ContactId} was not found.");
+                }
 
-            //Get the Providers that match the Contact
-            log.LogInformation("Matching Providers with Contact based on Options and Preferences");
-            List<ProviderResponse> providerResponses = await GetProviderResponses(accounts, contact, log);
-            log.LogInformation($"{providerResponses.Count} Providers matched the Contact on Options and Preferences");
+                //Get Account Objects with Clinical and Residential Options
+                log.LogInformation("Retrieving accounts based on geo code with preferences");
+                List<ODataAccount> accounts = await GetAccountsByRadius(searchRequest.ZipCode, searchRequest.MilesRadius, log);
+                log.LogInformation($"Successfully retrieved {accounts.Count} accounts based on geo code.");
 
-            //Create Search Response
-            log.LogInformation("Creating search response based on Matching Providers and Contacts");
-            ProviderSearchResponse searchResponse = await CreateSearchResponse(providerResponses, searchRequest.ResultCount, log);
-            log.LogInformation($"{searchResponse.Providers.Count} Providers will be returned as part of the search response.");
+                if (!accounts.Any())
+                {
+                    return new NotFoundObjectResult($"No accounts were found for the current query");
+                }
 
-            return new OkObjectResult(searchResponse);
+                //Get the Providers that match the Contact
+                log.LogInformation("Matching Providers with Contact based on Options 6and Preferences");
+                List<ProviderResponse> providerResponses = await GetProviderResponses(accounts, contact, log);
+                log.LogInformation($"{providerResponses.Count} Providers matched the Contact on Options and Preferences");
+
+                //Create Search Response
+                log.LogInformation("Creating search response based on Matching Providers and Contacts");
+                ProviderSearchResponse searchResponse = await CreateSearchResponse(providerResponses, searchRequest.ResultCount, log);
+                log.LogInformation($"{searchResponse.Providers.Count} Providers will be returned as part of the search response.");
+
+                return new OkObjectResult(searchResponse);
+            }
+            catch (Exception ex)
+            {
+                log.LogError($"An error occurred in provider search. Message: {ex.Message}. Inner Exception: {ex.InnerException}");
+                ProviderSearchResponse response = new ProviderSearchResponse()
+                {
+                    ErrorMessage = ex.Message,
+                    IsError = true
+                };
+
+                return new BadRequestObjectResult(response);
+            }
         }
         #endregion Public Methods
 
@@ -199,6 +223,11 @@ namespace ProviderSearch
                 ODataContact contact = new ODataContact();
                 contact = await contact.GetContacts(_client, contactId);
                 log.LogInformation("Contact retrieved successfully");
+
+                if(contact == null)
+                {
+                    throw new Exception($"Contact with id {contactId} was not found");
+                }
 
                 log.LogInformation("Adding profile options to contact.");
                 if (contact.ClinicalProfile != null)
@@ -353,15 +382,47 @@ namespace ProviderSearch
                 LongDescription = account.LongDescription,
                 MatchedProfileCriterias = new List<ProfileCriteria>(),
                 UnmatchedProfileCriterias = new List<ProfileCriteria>(),
-                ProfileScore = 0
+                ProfileScore = 0,
+                MediaUrls = new List<ProviderMedia>()
             };
 
             log.LogInformation("Setting Matched and Unmatched Profile Criteria for Provider Response");
             SetResponseCriteriaAndScore(providerResponse, account, contact, clinicalMatchRules, residentialMatchRules, log);
             log.LogInformation($"{providerResponse.MatchedProfileCriterias.Count} Matched Profile Criterias and {providerResponse.UnmatchedProfileCriterias.Count} Unmatched Profile Criterias");
 
+            log.LogInformation("Getting related medai and setting the MediaUrls for Provider Response");
+            providerResponse.MediaUrls = GetProviderMedia(account, log);
+            log.LogInformation($"{providerResponse.MediaUrls.Count} Provider Media added to the Provider Response");
 
             return providerResponse;
+        }
+
+        private List<ProviderMedia> GetProviderMedia(ODataAccount account, ILogger log)
+        {
+            List<ProviderMedia> providerMedia = new List<ProviderMedia>();
+            BlobStorage blob = new BlobStorage(Config.BlobStorageConnectionString, Config.BlobStorageContainerName, log);
+
+            List<string> imageUrls = blob.GetBlobStorageUrlByRecordId(account.AccountId.Replace("-", "").ToLower());
+
+            foreach (string url in imageUrls)
+            {
+                ProviderMedia media = new ProviderMedia()
+                {
+                    UrlValue = url
+                };
+
+                providerMedia.Add(media);
+            }
+
+            if (!providerMedia.Any())
+            {
+                providerMedia.Add(new ProviderMedia()
+                {
+                    UrlValue = string.Empty
+                });
+            }
+
+            return providerMedia;
         }
 
         /// <summary>
@@ -386,7 +447,7 @@ namespace ProviderSearch
             //Set Matched/Unmatched Residential Profile Criteria
             List<ProfileCriteria> matchedResidentialCriteria;
             List<ProfileCriteria> unmatchedResidentialCriteria;
-            GetMatchedProfileCriteria(account.ClinicalOptions, contact.ResidentialOptions, out matchedResidentialCriteria, out unmatchedResidentialCriteria);
+            GetMatchedProfileCriteria(account.ResidentialOptions, contact.ResidentialOptions, out matchedResidentialCriteria, out unmatchedResidentialCriteria);
 
             //Set Profile Score for Clinical and Residential Profile Criteria
             int clinicalScore = CalculateProfileScore(matchedClinicalCriteria, clinicalMatchRules, log);
@@ -396,7 +457,7 @@ namespace ProviderSearch
             UpdateCriteriaFriendlyNames(matchedClinicalCriteria, clinicalMatchRules, log);
             UpdateCriteriaFriendlyNames(unmatchedClinicalCriteria, clinicalMatchRules, log);
             UpdateCriteriaFriendlyNames(matchedResidentialCriteria, residentialMatchRules, log);
-            UpdateCriteriaFriendlyNames(unmatchedClinicalCriteria, residentialMatchRules, log);
+            UpdateCriteriaFriendlyNames(unmatchedResidentialCriteria, residentialMatchRules, log);
 
             //Update Provider Response Object
             providerResponse.MatchedProfileCriterias.AddRange(matchedClinicalCriteria);
@@ -484,24 +545,24 @@ namespace ProviderSearch
             matchedCriteria = new List<ProfileCriteria>();
             unmatchedCriteria = new List<ProfileCriteria>();
 
+            if (!contactOptions.Any())
+            {
+                return;
+            }
+
             foreach (var(key, accountValue) in accountOptions)
             {
+                ProfileCriteria criteria = new ProfileCriteria();
                 //If the option was selected by the user and matches the provider, set to matched
-                if (contactOptions.ContainsKey(key) && Equals(accountValue, contactOptions[key]))
+                if (contactOptions.ContainsKey(key) && contactOptions[key] == accountValue)
                 {
-                    ProfileCriteria criteria = new ProfileCriteria()
-                    {
-                        AttributeName = key
-                    };
+                    criteria.AttributeName = key;
                     matchedCriteria.Add(criteria);
                 }
                 //If the option was selected by the user and does not match the provider, set to unmatched
                 else if (contactOptions.ContainsKey(key))
                 {
-                    ProfileCriteria criteria = new ProfileCriteria()
-                    {
-                        AttributeName = key
-                    };
+                    criteria.AttributeName = key;
                     unmatchedCriteria.Add(criteria);
                 }
             }

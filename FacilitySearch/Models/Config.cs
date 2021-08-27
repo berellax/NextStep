@@ -10,8 +10,9 @@ namespace ProviderSearch.Models
         public static string ClientSecret { get; set; }
         public static string AuthorityUrl { get; set; }
         public static string GeoCodeApi { get; set; }
-
         public static string GeoCodeApiKey { get; set; }
+        public static string BlobStorageConnectionString { get; set; }
+        public static string BlobStorageContainerName { get; set; }
         public Config(System.Collections.IDictionary keys)
         {
             EnvironmentUrl = (string)keys["EnvironmentUrl"];
@@ -20,6 +21,8 @@ namespace ProviderSearch.Models
             AuthorityUrl = (string)keys["AuthorityUrl"];
             GeoCodeApi = (string)keys["GeoCodeApi"];
             GeoCodeApiKey = (string)keys["GeoCodeApiKey"];
+            BlobStorageConnectionString = (string)keys["BlobStorageConnectionString"];
+            BlobStorageContainerName = (string)keys["BlobStorageContainerName"];
         }
 
     }

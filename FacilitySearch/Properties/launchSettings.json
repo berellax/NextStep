@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "ProviderSearch": {
+      "commandName": "Project",
+      "nativeDebugging": true
+    }
+  }
+}
