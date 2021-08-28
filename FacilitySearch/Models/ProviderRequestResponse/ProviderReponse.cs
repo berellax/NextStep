@@ -161,31 +161,30 @@ namespace ProviderSearch.Models
         private string _urlDesc;
 
         [JsonPropertyName("urlId")]
-        public int UrlId
+        public string UrlId
         {
-            get { return _urlId; }
-            set { _urlId = value; }
+            get { return Guid.NewGuid().ToString(); }
         }
 
         [JsonPropertyName("urlType")]
         public string UrlType
         {
             get { return _urlType; }
-            set { _urlType = _encode(value); }
+            set { _urlType = value; }
         }
 
         [JsonPropertyName("urlValue")]
         public string UrlValue
         {
             get { return _urlValue; }
-            set { _urlValue = _encode(value); }
+            set { _urlValue = value; }
         }
 
         [JsonPropertyName("urlDesc")]
         public string UrlDescription
         {
             get { return _urlDesc; }
-            set { _urlDesc = _encode(value); }
+            set { _urlDesc = value; }
         }
     }
 

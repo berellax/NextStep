@@ -568,37 +568,6 @@ namespace ProviderSearch
             }
         }
 
-        private bool DoesDictionaryMatch(Dictionary<string, bool> accountOptions, Dictionary<string, bool> contactOptions)
-        {
-            bool isMatch = false;
-            
-            var result = new Dictionary<string, bool>(accountOptions.Count, accountOptions.Comparer);
-
-            foreach(var (key, value) in contactOptions)
-            {
-                if (accountOptions.ContainsKey(key))
-                {
-                    var contactValue = accountOptions[key];
-
-                    if(Equals(value, contactValue))
-                    {
-                        isMatch = true;
-                        continue;
-                    }
-                    else
-                    {
-                        return false;
-                    }
-                }
-                else
-                {
-                    return false;
-                }
-            }
-
-            return isMatch;
-        }
-
         private async Task<ProviderSearchResponse> CreateSearchResponse(List<ProviderResponse> providerResponses, int resultCount, ILogger log)
         {
             ProviderSearchResponse searchResponse = new ProviderSearchResponse();

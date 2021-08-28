@@ -34,7 +34,7 @@ namespace ProviderSearch.Activities
         {
             List<string> blobUrls = new List<string>();
             BlobHierarchyItem recordFolder = null;
-            List<BlobItem> recordBlobs;
+            //List<BlobItem> recordBlobs;
 
             try
             {
@@ -70,32 +70,33 @@ namespace ProviderSearch.Activities
             try
             {
                 _log.LogInformation("Retrieving blobs from folder");
-                recordBlobs = _container.GetBlobs(BlobTraits.None, BlobStates.None, recordId).ToList();
 
+                var recordBlobs = _container.GetBlobs().Where(b => b.Name.StartsWith(recordId, StringComparison.OrdinalIgnoreCase));
 
-                //recordBlobs = _container.GetBlobsByHierarchy(BlobTraits.None, BlobStates.None, "/", recordId).ToList();
-                _log.LogInformation($"{recordBlobs.Count} blobs contained in folder");
+                foreach (var blob in recordBlobs)
+                {
+                    try
+                    {
+                        if (blob != null)
+                        {
+                            var blobClient = _container.GetBlobClient(blob.Name);
+                            string blobUri = blobClient.Uri.ToString();
+                            blobUrls.Add(blobUri);
+                        }
+
+                    }
+                    catch (Exception)
+                    {
+
+                        throw;
+                    }
+
+                }
             }
             catch (Exception ex)
             {
                 _log.LogError($"An error occurred retrieving blobs from folder.", ex.Message);
                 throw;
-            }
-
-            foreach (var blob in recordBlobs)
-            {
-                try
-                {
-                    var blobClient = _container.GetBlobClient(blob.Name);
-                    string blobUri = blobClient.Uri.ToString();
-                    blobUrls.Add(blobUri);
-                }
-                catch (Exception)
-                {
-
-                    throw;
-                }
-
             }
 
             return blobUrls;
