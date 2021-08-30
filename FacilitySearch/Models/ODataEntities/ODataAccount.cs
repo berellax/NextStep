@@ -73,7 +73,8 @@ namespace ProviderSearch.Models
         public string ResidentialProfileId { get; set; }
 
         public Dictionary<string, bool> ClinicalOptions { get; set; }
-        public Dictionary<string, bool> ResidentialOptions { get; set; }
+        public ResidentialProfile ResidentialProfile { get; set; }
+
         #endregion
 
         public async Task<ODataResponse<ODataAccount>> GetAccounts(HttpClient httpClient, GeoRange geoRange)

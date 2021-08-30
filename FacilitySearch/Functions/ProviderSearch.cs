@@ -168,8 +168,8 @@ namespace ProviderSearch
                     }
                     if (account.ResidentialProfileId != null)
                     {
-                        Dictionary<string, bool> residentialProfileOptions = await GetResidentialProfileOptions(account.ResidentialProfileId, true, log);
-                        account.ResidentialOptions = residentialProfileOptions;
+                        ResidentialProfile residentialProfile = await GetResidentialProfileOptions(account.ResidentialProfileId, true, log);
+                        account.ResidentialProfile = residentialProfile;
                     }
                 }
                 log.LogInformation("Profile options added to all accounts.");
@@ -230,15 +230,15 @@ namespace ProviderSearch
                 }
 
                 log.LogInformation("Adding profile options to contact.");
-                if (contact.ClinicalProfile != null)
+                if (contact.ClinicalProfileId != null)
                 {
-                    Dictionary<string, bool> clinicalProfileOptions = await GetClinicalProfileOptions(contact.ClinicalProfile, false, log);
+                    Dictionary<string, bool> clinicalProfileOptions = await GetClinicalProfileOptions(contact.ClinicalProfileId, false, log);
                     contact.ClinicalOptions = clinicalProfileOptions;
                 }
-                if(contact.ResidentialProfile != null)
+                if(contact.ResidentialProfileId != null)
                 {
-                    Dictionary<string, bool> residentialProfileOptions = await GetResidentialProfileOptions(contact.ResidentialProfile, false, log);
-                    contact.ResidentialOptions = residentialProfileOptions;
+                    ResidentialProfile residentialProfile = await GetResidentialProfileOptions(contact.ResidentialProfileId, false, log);
+                    contact.ResidentialProfile = residentialProfile;
                 }
                 log.LogInformation("Profile options added to contact.");
 
@@ -287,14 +287,17 @@ namespace ProviderSearch
         /// <param name="profileId"></param>
         /// <param name="log"></param>
         /// <returns></returns>
-        private async Task<Dictionary<string, bool>> GetResidentialProfileOptions(string profileId, bool includeFalse, ILogger log)
+        private async Task<ResidentialProfile> GetResidentialProfileOptions(string profileId, bool includeFalse, ILogger log)
         {
+            ResidentialProfile residentialProfile = new ResidentialProfile();
+
             Dictionary<string, bool> profileOptions = new Dictionary<string, bool>();
 
             ODataResidentialProfile profile = new ODataResidentialProfile();
-            JObject residentialProfile = await profile.GetResidentialProfiles(_client, profileId);
+            JObject profileObject = await profile.GetResidentialProfiles(_client, profileId);
+            int baseAmount = int.MinValue;
 
-            foreach (JProperty element in residentialProfile.Children())
+            foreach (JProperty element in profileObject.Children())
             {
                 bool boolValue;
                 if (bool.TryParse(element.Value.ToString(), out boolValue))
@@ -304,9 +307,24 @@ namespace ProviderSearch
                         profileOptions.Add(element.Name, boolValue);
                     }
                 }
+                else if(element.Name == "nsat_baseamount")
+                {
+                    int.TryParse(element.Value.ToString(), out baseAmount);
+                }
             }
 
-            return profileOptions;
+            residentialProfile.ProfileOptions = profileOptions;
+
+            if(baseAmount > int.MinValue)
+            {
+                if(Enum.IsDefined(typeof(BaseAmount), baseAmount))
+                {
+                    residentialProfile.BaseAmount = (BaseAmount)baseAmount;
+                }
+            }
+
+
+            return residentialProfile;
         }
         #endregion Get Profile Options
 
@@ -327,6 +345,14 @@ namespace ProviderSearch
 
             //Get a collection of accounts with a Clinical and Residential Profile Id
             List<ODataAccount> targetAccounts = accounts.Where(a => a.ClinicalProfileId != null && a.ResidentialProfileId != null).ToList();
+            foreach(var account in targetAccounts)
+            {
+                if((int)account.ResidentialProfile.BaseAmount > (int)contact.ResidentialProfile.BaseAmount)
+                {
+                    targetAccounts.Remove(account);
+                }
+            }
+            
             log.LogInformation($"Retrieved {targetAccounts.Count} target accounts to format for search response.");
 
             //Get Match Scoring Rules
@@ -340,11 +366,13 @@ namespace ProviderSearch
             log.LogInformation($"{clinicalMatchRules.Count} Clinical Match Rules Identified");
             log.LogInformation($"{residentialMatchRules.Count} Residential Match Ruels Identified");
 
+            BlobStorage blob = new BlobStorage(Config.BlobStorageConnectionString, Config.BlobStorageContainerName, log);
+
             //Create Provider Response for each account.
             foreach (var account in targetAccounts)
             {
                 log.LogInformation($"Creating Provider Response for Account {account.Name}");
-                ProviderResponse providerResponse = CreateProviderResponse(account, contact, clinicalMatchRules, residentialMatchRules, log);
+                ProviderResponse providerResponse = CreateProviderResponse(account, contact, clinicalMatchRules, residentialMatchRules, blob, log);
                 providerResponses.Add(providerResponse);
                 log.LogInformation($"Successfully added Provider Response {account.Name} to search response.");
             }
@@ -361,7 +389,7 @@ namespace ProviderSearch
         /// <param name="log"></param>
         /// <returns></returns>
         private ProviderResponse CreateProviderResponse(ODataAccount account, ODataContact contact, List<ODataMatchScoringRule> clinicalMatchRules, 
-                                                            List<ODataMatchScoringRule> residentialMatchRules, ILogger log)
+                                                            List<ODataMatchScoringRule> residentialMatchRules, BlobStorage blob, ILogger log)
         {
             //Create a new Provider Response objects and populate account information
             ProviderResponse providerResponse = new ProviderResponse()
@@ -390,17 +418,16 @@ namespace ProviderSearch
             SetResponseCriteriaAndScore(providerResponse, account, contact, clinicalMatchRules, residentialMatchRules, log);
             log.LogInformation($"{providerResponse.MatchedProfileCriterias.Count} Matched Profile Criterias and {providerResponse.UnmatchedProfileCriterias.Count} Unmatched Profile Criterias");
 
-            log.LogInformation("Getting related medai and setting the MediaUrls for Provider Response");
-            providerResponse.MediaUrls = GetProviderMedia(account, log);
+            log.LogInformation("Getting related media and setting the MediaUrls for Provider Response");
+            providerResponse.MediaUrls = GetProviderMedia(account, blob, log);
             log.LogInformation($"{providerResponse.MediaUrls.Count} Provider Media added to the Provider Response");
 
             return providerResponse;
         }
 
-        private List<ProviderMedia> GetProviderMedia(ODataAccount account, ILogger log)
+        private List<ProviderMedia> GetProviderMedia(ODataAccount account, BlobStorage blob, ILogger log)
         {
             List<ProviderMedia> providerMedia = new List<ProviderMedia>();
-            BlobStorage blob = new BlobStorage(Config.BlobStorageConnectionString, Config.BlobStorageContainerName, log);
 
             List<string> imageUrls = blob.GetBlobStorageUrlByRecordId(account.AccountId.Replace("-", "").ToLower());
 
@@ -439,31 +466,44 @@ namespace ProviderSearch
         private void SetResponseCriteriaAndScore(ProviderResponse providerResponse, ODataAccount account, ODataContact contact,
                                                                     List<ODataMatchScoringRule> clinicalMatchRules, List<ODataMatchScoringRule> residentialMatchRules, ILogger log)
         {
+            int clinicalScore = 0;
+            int residentialScore = 0;
             //Set Matched/Unmatched Clinical Profile Criteria
             List<ProfileCriteria> matchedClinicalCriteria;
             List<ProfileCriteria> unmatchedClinicalCriteria;
-            GetMatchedProfileCriteria(account.ClinicalOptions, contact.ClinicalOptions, out matchedClinicalCriteria, out unmatchedClinicalCriteria);
+            if (account.ClinicalOptions != null && contact.ClinicalOptions != null)
+            {
+                GetMatchedProfileCriteria(account.ClinicalOptions, contact.ClinicalOptions, out matchedClinicalCriteria, out unmatchedClinicalCriteria);
+                clinicalScore = CalculateProfileScore(matchedClinicalCriteria, clinicalMatchRules, log);
+                UpdateCriteriaFriendlyNames(matchedClinicalCriteria, clinicalMatchRules, log);
+                UpdateCriteriaFriendlyNames(unmatchedClinicalCriteria, clinicalMatchRules, log);
+                providerResponse.MatchedProfileCriterias.AddRange(matchedClinicalCriteria);
+                providerResponse.UnmatchedProfileCriterias.AddRange(unmatchedClinicalCriteria);
+            }
+
 
             //Set Matched/Unmatched Residential Profile Criteria
             List<ProfileCriteria> matchedResidentialCriteria;
             List<ProfileCriteria> unmatchedResidentialCriteria;
-            GetMatchedProfileCriteria(account.ResidentialOptions, contact.ResidentialOptions, out matchedResidentialCriteria, out unmatchedResidentialCriteria);
+            if (account.ResidentialProfile != null && account.ResidentialProfile.ProfileOptions != null
+                && contact.ResidentialProfile != null && contact.ResidentialProfile.ProfileOptions != null)
+            {
+                GetMatchedProfileCriteria(account.ResidentialProfile.ProfileOptions, contact.ResidentialProfile.ProfileOptions, out matchedResidentialCriteria, out unmatchedResidentialCriteria);
+                residentialScore = CalculateProfileScore(matchedResidentialCriteria, residentialMatchRules, log);
+                UpdateCriteriaFriendlyNames(matchedResidentialCriteria, residentialMatchRules, log);
+                UpdateCriteriaFriendlyNames(unmatchedResidentialCriteria, residentialMatchRules, log);
+                providerResponse.MatchedProfileCriterias.AddRange(matchedResidentialCriteria);
+                providerResponse.UnmatchedProfileCriterias.AddRange(unmatchedResidentialCriteria);
+            }
 
             //Set Profile Score for Clinical and Residential Profile Criteria
-            int clinicalScore = CalculateProfileScore(matchedClinicalCriteria, clinicalMatchRules, log);
-            int residentialScore = CalculateProfileScore(matchedResidentialCriteria, residentialMatchRules, log);
 
             //Update Criteria to Friendly Name for Clinical and Residential Profile Criteria
-            UpdateCriteriaFriendlyNames(matchedClinicalCriteria, clinicalMatchRules, log);
-            UpdateCriteriaFriendlyNames(unmatchedClinicalCriteria, clinicalMatchRules, log);
-            UpdateCriteriaFriendlyNames(matchedResidentialCriteria, residentialMatchRules, log);
-            UpdateCriteriaFriendlyNames(unmatchedResidentialCriteria, residentialMatchRules, log);
+  
 
             //Update Provider Response Object
-            providerResponse.MatchedProfileCriterias.AddRange(matchedClinicalCriteria);
-            providerResponse.MatchedProfileCriterias.AddRange(matchedResidentialCriteria);
-            providerResponse.UnmatchedProfileCriterias.AddRange(unmatchedClinicalCriteria);
-            providerResponse.UnmatchedProfileCriterias.AddRange(unmatchedResidentialCriteria);
+            
+
             providerResponse.ProfileScore = clinicalScore + residentialScore;
         }
 

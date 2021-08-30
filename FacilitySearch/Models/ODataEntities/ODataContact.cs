@@ -18,16 +18,16 @@ namespace ProviderSearch.Models
         public string Name { get; set; }
 
         [JsonPropertyName("_nsat_clinicalprofile_value")]
-        public string ClinicalProfile { get; set; }
+        public string ClinicalProfileId { get; set; }
 
         [JsonPropertyName("_nsat_residentialprofile_value")]
-        public string ResidentialProfile { get; set; }
+        public string ResidentialProfileId { get; set; }
 
         [JsonPropertyName("fullname")]
         public string FullName { get; set; }
 
         public Dictionary<string, bool> ClinicalOptions { get; set; }
-        public Dictionary<string, bool> ResidentialOptions { get; set; }
+        public ResidentialProfile ResidentialProfile { get; set; }
 
         public async Task<ODataContact> GetContacts(HttpClient httpClient, string contactId)
         {
