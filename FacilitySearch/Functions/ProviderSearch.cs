@@ -345,13 +345,7 @@ namespace ProviderSearch
 
             //Get a collection of accounts with a Clinical and Residential Profile Id
             List<ODataAccount> targetAccounts = accounts.Where(a => a.ClinicalProfileId != null && a.ResidentialProfileId != null).ToList();
-            foreach(var account in targetAccounts)
-            {
-                if((int)account.ResidentialProfile.BaseAmount > (int)contact.ResidentialProfile.BaseAmount)
-                {
-                    targetAccounts.Remove(account);
-                }
-            }
+            targetAccounts = targetAccounts.Where(a => (int)a.ResidentialProfile.BaseAmount > (int)contact.ResidentialProfile.BaseAmount).ToList();
             
             log.LogInformation($"Retrieved {targetAccounts.Count} target accounts to format for search response.");
 
