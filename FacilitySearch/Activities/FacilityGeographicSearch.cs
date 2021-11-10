@@ -39,15 +39,26 @@ namespace ProviderSearch.Activities
                 throw new Exception($"Get Coordinates for Zip Code did not return any results.");
             }
 
-            var latitude = result["results"][0]["locations"][0]["latLng"]["lat"].ToString();
-            var longitude = result["results"][0]["locations"][0]["latLng"]["lng"].ToString();
+            var resultLocations = result["results"][0]["locations"];
+            string latitude;
+            string longitude;
 
-            GeoPoint point = new GeoPoint (
-                    double.Parse(latitude),
-                    double.Parse(longitude)
-                );
+            foreach(var location in resultLocations)
+            {
+                if (location["adminArea1Type"].ToString() == "Country"
+                    && location["adminArea1"].ToString() == "US")
+                {
+                    latitude = location["latLng"]["lat"].ToString();
+                    longitude = location["latLng"]["lng"].ToString();
+                    GeoPoint point = new GeoPoint(
+                        double.Parse(latitude),
+                        double.Parse(longitude)
+                    );
+                    return point;
+                }
+            }
 
-            return point;
+            return null;
         }
 
         internal GeoRange GetMinMaxLatLong(GeoPoint geoPoint, int radiusMiles)

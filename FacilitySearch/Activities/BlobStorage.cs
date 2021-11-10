@@ -19,6 +19,7 @@ namespace ProviderSearch.Activities
             _log = log;
             try
             {
+                //TODO: Update to include Shared Access Signature and URI
                 _container = new BlobContainerClient(connectionString, containerName);
                 _log.LogInformation($"Established connection to blob container {_container.Name} at URI {_container.Uri}");
             }

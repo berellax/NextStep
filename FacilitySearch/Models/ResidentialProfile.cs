@@ -7,7 +7,7 @@ namespace ProviderSearch.Models
     internal class ResidentialProfile
     {
         public Dictionary<string, bool> ProfileOptions { get; set; }
-        public BaseAmount BaseAmount { get; set; }
+        public BaseAmount? BaseAmount { get; set; }
     }
 
     internal enum BaseAmount

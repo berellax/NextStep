@@ -1,21 +1,19 @@
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json.Linq;
+using ProviderSearch.Activities;
+using ProviderSearch.Models;
+using ProviderSearch.Responses;
+using ProviderSearch.Shared;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
-using System.IO;
-using Newtonsoft.Json;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Azure.WebJobs;
-using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
-using ProviderSearch.Models;
-using ProviderSearch.Shared;
-using ProviderSearch.Activities;
-using ProviderSearch.Responses;
-using System.Collections.Generic;
-using Newtonsoft.Json.Linq;
 
 namespace ProviderSearch
 {
@@ -38,8 +36,13 @@ namespace ProviderSearch
         {
             try
             {
-
                 log.LogInformation("ProviderSearch function request initiated.");
+
+                //Check if Request body has content
+                if(req.ContentLength == 0)
+                {
+                    log.LogError($"Provider Search request body cannot be empty.");
+                }
 
                 //Parse the Provider Search Request object.
                 var searchRequest = await ParseProviderSearchRequest(req);
@@ -65,16 +68,16 @@ namespace ProviderSearch
                 List<ODataAccount> accounts = await GetAccountsByRadius(searchRequest.ZipCode, searchRequest.MilesRadius, log);
                 log.LogInformation($"Successfully retrieved {accounts.Count} accounts based on geo code.");
 
-                if (!accounts.Any())
+                List<ProviderResponse> providerResponses = new List<ProviderResponse>();
+                
+                if (accounts.Any())
                 {
-                    return new NotFoundObjectResult($"No accounts were found for the current query");
+                    //Get the Providers that match the Contact
+                    log.LogInformation("Matching Providers with Contact based on Options and Preferences");
+                    providerResponses = await GetProviderResponses(accounts, contact, log);
+                    log.LogInformation($"{providerResponses.Count} Providers matched the Contact on Options and Preferences");
                 }
-
-                //Get the Providers that match the Contact
-                log.LogInformation("Matching Providers with Contact based on Options 6and Preferences");
-                List<ProviderResponse> providerResponses = await GetProviderResponses(accounts, contact, log);
-                log.LogInformation($"{providerResponses.Count} Providers matched the Contact on Options and Preferences");
-
+                
                 //Create Search Response
                 log.LogInformation("Creating search response based on Matching Providers and Contacts");
                 ProviderSearchResponse searchResponse = await CreateSearchResponse(providerResponses, searchRequest.ResultCount, log);
@@ -344,10 +347,45 @@ namespace ProviderSearch
             List<ProviderResponse> providerResponses = new List<ProviderResponse>();
 
             //Get a collection of accounts with a Clinical and Residential Profile Id
-            List<ODataAccount> targetAccounts = accounts.Where(a => a.ClinicalProfileId != null && a.ResidentialProfileId != null).ToList();
-            targetAccounts = targetAccounts.Where(a => (int)a.ResidentialProfile.BaseAmount > (int)contact.ResidentialProfile.BaseAmount).ToList();
+            List<ODataAccount> targetAccounts = new List<ODataAccount>();
+
+            //Create collection with accounts that have a Residential Profile
+            //If account/contact has a Base Amount, compare those, otherwise do not compare
+            foreach(var account in accounts)
+            {
+                if(account.ClinicalProfileId == null 
+                    || account.ResidentialProfileId == null
+                    || account.ResidentialProfile == null)
+                {
+                    continue;
+                }
+
+
+                if (contact.ResidentialProfile != null 
+                    && contact.ResidentialProfile.BaseAmount != null
+                    && account.ResidentialProfile.BaseAmount != null)
+                {
+                    int contactBaseAmount = (int)contact.ResidentialProfile.BaseAmount;
+                    int accountBaseAmount = (int)account.ResidentialProfile.BaseAmount;
+
+                    if(accountBaseAmount >= contactBaseAmount)
+                    {
+                        targetAccounts.Add(account);
+                    }
+                }
+                else
+                {
+                    targetAccounts.Add(account);
+                }
+                
+            }
+
+            //List<ODataAccount> targetAccounts = accounts.Where(a => a.ClinicalProfileId != null && a.ResidentialProfileId != null).ToList();
+
+            //Filter collection on Base Amount
+            //targetAccounts = targetAccounts.Where(a => (int)a.ResidentialProfile.BaseAmount > (int)contact.ResidentialProfile.BaseAmount).ToList();
             
-            log.LogInformation($"Retrieved {targetAccounts.Count} target accounts to format for search response.");
+            log.LogInformation($"Retrieved {targetAccounts.Count} target accounts out of {accounts.Count} total accounts to format for search response.");
 
             //Get Match Scoring Rules
             log.LogInformation("Retrieving Match Scoring Rules");
@@ -605,49 +643,51 @@ namespace ProviderSearch
         private async Task<ProviderSearchResponse> CreateSearchResponse(List<ProviderResponse> providerResponses, int resultCount, ILogger log)
         {
             ProviderSearchResponse searchResponse = new ProviderSearchResponse();
+            searchResponse.Providers = providerResponses.OrderByDescending(p => p.ProfileScore).Take(resultCount).ToList();
 
-            if (providerResponses.Any())
-            {
-                searchResponse.Providers = providerResponses.OrderByDescending(p => p.ProfileScore).Take(resultCount).ToList();
-            }
-            else
-            {
-                ProviderResponse providerResponse = new ProviderResponse()
-                {
-                    Id = Guid.Empty.ToString(),
-                    Name = "Test Provider",
-                    Phone = "000-000-0000",
-                    Fax = "000-000-0000",
-                    EmailAddress = "test@xyz.test",
-                    Address1 = "123 Main Street",
-                    Address2 = "Unit 500",
-                    City = "Phoenix",
-                    StateOrProvince = "AZ",
-                    PostalCode = "85254",
-                    Headline = "This is a headline",
-                    CurrentPromotions = "This is the current promotion",
-                    ShortDescription = "This is a short description",
-                    LongDescription = "This is a long description",
-                    ProfileScore = 100,
-                    MatchedProfileCriterias = new List<ProfileCriteria>(),
-                    UnmatchedProfileCriterias = new List<ProfileCriteria>()
-                };
 
-                ProfileCriteria matchedCriteria = new ProfileCriteria()
-                {
-                    AttributeName = "Onsite LPN"
-                };
-                providerResponse.MatchedProfileCriterias.Add(matchedCriteria);
+            //if (providerResponses.Any())
+            //{
+            //    searchResponse.Providers = providerResponses.OrderByDescending(p => p.ProfileScore).Take(resultCount).ToList();
+            //}
+            //else
+            //{
+            //    ProviderResponse providerResponse = new ProviderResponse()
+            //    {
+            //        Id = Guid.Empty.ToString(),
+            //        Name = "Test Provider",
+            //        Phone = "000-000-0000",
+            //        Fax = "000-000-0000",
+            //        EmailAddress = "test@xyz.test",
+            //        Address1 = "123 Main Street",
+            //        Address2 = "Unit 500",
+            //        City = "Phoenix",
+            //        StateOrProvince = "AZ",
+            //        PostalCode = "85254",
+            //        Headline = "This is a headline",
+            //        CurrentPromotions = "This is the current promotion",
+            //        ShortDescription = "This is a short description",
+            //        LongDescription = "This is a long description",
+            //        ProfileScore = 100,
+            //        MatchedProfileCriterias = new List<ProfileCriteria>(),
+            //        UnmatchedProfileCriterias = new List<ProfileCriteria>()
+            //    };
 
-                ProfileCriteria unmatchedCriteria = new ProfileCriteria()
-                {
-                    AttributeName = "Onsite Pharmacy"
-                };
-                providerResponse.UnmatchedProfileCriterias.Add(unmatchedCriteria);
+            //    ProfileCriteria matchedCriteria = new ProfileCriteria()
+            //    {
+            //        AttributeName = "Onsite LPN"
+            //    };
+            //    providerResponse.MatchedProfileCriterias.Add(matchedCriteria);
 
-                searchResponse.Providers = new List<ProviderResponse>();
-                searchResponse.Providers.Add(providerResponse);
-            }
+            //    ProfileCriteria unmatchedCriteria = new ProfileCriteria()
+            //    {
+            //        AttributeName = "Onsite Pharmacy"
+            //    };
+            //    providerResponse.UnmatchedProfileCriterias.Add(unmatchedCriteria);
+
+            //    searchResponse.Providers = new List<ProviderResponse>();
+            //    searchResponse.Providers.Add(providerResponse);
+            //}
 
             return searchResponse;
         }

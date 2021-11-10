@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 
 namespace ProviderSearch.Models
 {
@@ -14,7 +11,7 @@ namespace ProviderSearch.Models
         [JsonPropertyName("zip")]
         public string ZipCode { 
             get { return _zipCode;  }
-            set { _zipCode = _encode(value); }
+            set { _zipCode = value; }
         }
 
         [JsonPropertyName("radius")]
