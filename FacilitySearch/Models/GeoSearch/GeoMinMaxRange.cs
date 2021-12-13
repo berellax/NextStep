@@ -10,5 +10,6 @@ namespace ProviderSearch.Models
         public double LatitudeMax { get; set; }
         public double LongitudeMax { get; set; }
         public double LongitudeMin { get; set; }
+        public string ZipCode { get; set; }
     }
 }

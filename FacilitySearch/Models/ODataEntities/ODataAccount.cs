@@ -104,11 +104,14 @@ namespace ProviderSearch.Models
             };
 
             StringBuilder filterBuilder = new StringBuilder();
-            filterBuilder.Append($"address1_latitude le {geoRange.LatitudeMax}");
-            filterBuilder.Append($" and address1_latitude ge {geoRange.LatitudeMin}");
-            filterBuilder.Append($" and address1_longitude le {geoRange.LongitudeMax}");
+            filterBuilder.Append($"statecode eq 0");
+            filterBuilder.Append($" and ((address1_latitude ge {geoRange.LatitudeMin}");
             filterBuilder.Append($" and address1_longitude ge {geoRange.LongitudeMin}");
-            filterBuilder.Append($" and statecode eq 0");
+            filterBuilder.Append($" and address1_latitude le {geoRange.LatitudeMax}");
+            filterBuilder.Append($" and address1_longitude le {geoRange.LongitudeMax})");
+            
+            //Adding Zip Code as a secondary criteria
+            filterBuilder.Append($"or (address1_postalcode eq {geoRange.ZipCode})");
 
             string filter = filterBuilder.ToString();
 

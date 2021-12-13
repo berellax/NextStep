@@ -150,6 +150,7 @@ namespace ProviderSearch
                 GeoSearch geoSearch = new GeoSearch();
                 GeoPoint geoPoint = await geoSearch.GetCoordinatesForZipCode(zipCode);
                 GeoRange geoRange = geoSearch.GetMinMaxLatLong(geoPoint, milesRadius);
+                geoRange.ZipCode = zipCode;
                 log.LogInformation($"Coordinates are Lat: {geoPoint.Latitude}; Long: {geoPoint.Longitude}");
                 log.LogInformation($"Radius is Max Lat: {geoRange.LatitudeMax}; Min Lat: {geoRange.LatitudeMin}; Max Long: {geoRange.LongitudeMax}; Min Long: {geoRange.LongitudeMin}");
 
@@ -368,7 +369,8 @@ namespace ProviderSearch
                     int contactBaseAmount = (int)contact.ResidentialProfile.BaseAmount;
                     int accountBaseAmount = (int)account.ResidentialProfile.BaseAmount;
 
-                    if(accountBaseAmount >= contactBaseAmount)
+                    //Changed to Account Budget <= Contact Budget
+                    if(accountBaseAmount <= contactBaseAmount)
                     {
                         targetAccounts.Add(account);
                     }
@@ -467,7 +469,7 @@ namespace ProviderSearch
             {
                 ProviderMedia media = new ProviderMedia()
                 {
-                    UrlValue = url
+                    UrlValue = url.Replace(" ", "%20")
                 };
 
                 providerMedia.Add(media);
